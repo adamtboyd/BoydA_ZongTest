@@ -4,9 +4,10 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Numerics;
+using Unity.VisualScripting;
+using UnityEditor;
 using UnityEngine;
-using UnityEngine.Experimental.AI;
-using UnityEngine.InputSystem;
+using UnityEngine.Assertions.Must;
 
 public class PlayerController : MonoBehaviour
 {
@@ -14,16 +15,20 @@ public class PlayerController : MonoBehaviour
     #region ATTRIBUTES
 
     #region Public Attributes
-    public float moveRate = 1f;
-    public float turnRate = 100f;
-    public float pitchRate = 100f;
-    public float lookThreshold = 0.1f;
-    public PlayerInput pInput;
     public Camera playerCamera;
+    public InteractiveObject focusedInteractiveObject;
+    public float moveRate = 1f;
+    public float turnRate = 200f;
+    public float pitchRate = 200f;
+    public float lookThreshold = 0.1f;
+    public float interactionRange = 100f;
+    
     #endregion
 
     #region Private Attributes
-    public float pawnRotation, camRotation = 0f;
+    float pawnRotation, camRotation = 0f;
+    LayerMask interactionLayer;
+    bool bCanInteract, bLookDirectionUpdated, bPawnPositionUpdated, bHitSuccessful = false;
     #endregion Private Attributes
 
     #region Properties
@@ -63,13 +68,40 @@ public class PlayerController : MonoBehaviour
         //set starting rotation values
         PawnRotation = transform.rotation.y;
         CamRotation = playerCamera.transform.rotation.x;
+        
+        //get interaction layer mask index
+        interactionLayer = LayerMask.GetMask("Interaction");
     }
 
     void Update()
     {
+        //player motion update method calls
         Move(Input.GetAxis("Horizontal"), Input.GetAxis("Vertical"));
         Look(Input.GetAxis("Mouse X"), Input.GetAxis("Mouse Y"));
-        
+    }
+
+    void FixedUpdate()
+    {
+        //only process raycast on change in look direction to save on resources
+        if(bLookDirectionUpdated || bPawnPositionUpdated)
+        {
+            RaycastHit rayHit;
+            //interactive object acquisition
+            bHitSuccessful = Physics.Raycast(
+                playerCamera.transform.position, //orgin
+                playerCamera.transform.forward,  //direction
+                out rayHit,                      //out hit result
+                interactionRange,                //raycast length
+                interactionLayer);               //layer mask to check
+            
+            //if his info is good, process hit and set interaction control bool, else set control bool to false
+            if(bHitSuccessful) bCanInteract = ProcessInteractiveObjectHit(rayHit);
+            else 
+            {
+                bCanInteract = false;
+                if(focusedInteractiveObject != null)  focusedInteractiveObject = null;
+            }
+        }
     }
     #endregion MonoBehavior Methods
 
@@ -82,9 +114,11 @@ public class PlayerController : MonoBehaviour
         deltaPosition += 
             transform.right * LeftRight +    //x axis movement
             transform.forward * ForwardBack; //z axis movement
+
+        bPawnPositionUpdated = deltaPosition == new UnityEngine.Vector3() ? false : true;
         
         //apply delta vector adjusted by rate and normalized by frame timing
-        transform.position += moveRate * Time.deltaTime * deltaPosition;
+        if(bPawnPositionUpdated) transform.position += moveRate * Time.deltaTime * deltaPosition;
 
         return;
     }
@@ -94,6 +128,18 @@ public class PlayerController : MonoBehaviour
         //check input values against dead zone
         float pawnDeltaRotation = Math.Abs(LeftRight) > lookThreshold ? LeftRight * turnRate * Time.deltaTime : 0f;
         float camDeltaRotation = Math.Abs(UpDown) > lookThreshold ? UpDown * pitchRate * Time.deltaTime : 0f;
+        
+        //short circuit and return if both delta values are in the dead zone
+        if(camDeltaRotation == 0f & pawnDeltaRotation == 0f)
+        {
+            bLookDirectionUpdated = false;
+            return;
+        }
+        //else continue with method execution
+        else
+        {
+            bLookDirectionUpdated = true;
+        }
 
         //Set left/right rotation of player pawn
         if(pawnDeltaRotation != 0f) 
@@ -110,6 +156,31 @@ public class PlayerController : MonoBehaviour
         }
 
         return;
+    }
+
+    /// <summary>
+    /// Processes new RaycastHit information for the 'Interaction' layer mask. 
+    /// Sets the local var 'focusedInteractiveObject's script reference if both of the following are true: 
+    /// a) The hit object has a valid IntObj script. 
+    /// b) That object is not already set as the focues IntObj. 
+    /// If no valid InteractiveObject is found in the raycast, the local var 'focusedInteractiveObject' is nulled.
+    /// </summary>
+    /// <param name="L_RayHit"></param>
+    /// <returns>A boolean where true indicates that the reference in focusedInteractiveObject has changed and false indicates that no change in that reference has occured. Useful in notifying UI events.</returns>
+    bool ProcessInteractiveObjectHit(RaycastHit L_RayHit)
+    {
+        //if the reference is null and the hit object carries the InteractiveObject script, set the reference and return true
+        if(focusedInteractiveObject == null & L_RayHit.transform.gameObject.GetComponent<InteractiveObject>() != null )
+        {
+            focusedInteractiveObject = L_RayHit.transform.gameObject.GetComponent<InteractiveObject>();
+            return true;
+        }
+        //else return false
+        else
+        {
+            //do nothing
+            return false;
+        }
     }
     #endregion Movement Methods
 
