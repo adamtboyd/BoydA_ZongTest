@@ -8,6 +8,7 @@ using Unity.VisualScripting;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.Assertions.Must;
+using UnityEngine.SceneManagement;
 
 public class PlayerController : MonoBehaviour
 {
@@ -15,23 +16,33 @@ public class PlayerController : MonoBehaviour
     #region ATTRIBUTES
 
     #region Public Attributes
+    public bool bPlayerHasPickup, bMenuOpen = false;
     public Camera playerCamera;
     public InteractiveObject focusedInteractiveObject;
+    public Transform checkpointLocation;
+    public HUD_UI hud;
     public float moveRate = 1f;
     public float turnRate = 200f;
     public float pitchRate = 200f;
     public float lookThreshold = 0.1f;
     public float interactionRange = 100f;
     
-    #endregion
+    #endregion Public Attribuites
 
     #region Private Attributes
     float pawnRotation, camRotation = 0f;
     LayerMask interactionLayer;
-    bool bCanInteract, bLookDirectionUpdated, bPawnPositionUpdated, bHitSuccessful = false;
+    bool bInteractObjectUpdated, bLookDirectionUpdated, bPawnPositionUpdated, bHitSuccessful = false;
     #endregion Private Attributes
 
     #region Properties
+    public bool BMenuOpen
+    {
+        set
+        {
+            bMenuOpen = value;
+        }
+    }
     private float PawnRotation
     {
         get =>  pawnRotation;
@@ -62,8 +73,7 @@ public class PlayerController : MonoBehaviour
     void Start()
     {
         //lock cursor to screen and hide cursor
-        Cursor.lockState = CursorLockMode.Locked;
-        Cursor.visible = false;
+        SetCursorToMovementMode(true);
 
         //set starting rotation values
         PawnRotation = transform.rotation.y;
@@ -75,30 +85,43 @@ public class PlayerController : MonoBehaviour
 
     void Update()
     {
-        //player motion update method calls
-        Move(Input.GetAxis("Horizontal"), Input.GetAxis("Vertical"));
-        Look(Input.GetAxis("Mouse X"), Input.GetAxis("Mouse Y"));
+        //if menu is not open
+        if(!bMenuOpen)
+        {
+            //player motion update method calls
+            Move(Input.GetAxis("Horizontal"), Input.GetAxis("Vertical"));
+            Look(Input.GetAxis("Mouse X"), Input.GetAxis("Mouse Y"));
+        }
+
+        //On E key pressed, send interact message to focused interactive object
+        if(Input.GetKeyDown(KeyCode.E) & focusedInteractiveObject != null) focusedInteractiveObject.SendMessage("StartInteract", this);
+
+        //On Tab pressed, if HUD UI is active, toggle on state of main UI panel
+        if(Input.GetKeyDown(KeyCode.Tab) & hud.gameObject.activeSelf) {
+            hud.ToggleUI(!bMenuOpen);
+            bMenuOpen = !bMenuOpen;
+            SetCursorToMovementMode(!bMenuOpen);
+        }
     }
 
     void FixedUpdate()
     {
-        //only process raycast on change in look direction to save on resources
+        //only process raycast on change in look direction or pawn position to save on resources
         if(bLookDirectionUpdated || bPawnPositionUpdated)
         {
-            RaycastHit rayHit;
             //interactive object acquisition
             bHitSuccessful = Physics.Raycast(
                 playerCamera.transform.position, //orgin
                 playerCamera.transform.forward,  //direction
-                out rayHit,                      //out hit result
+                out RaycastHit rayHit,                      //out hit result
                 interactionRange,                //raycast length
                 interactionLayer);               //layer mask to check
-            
+
             //if his info is good, process hit and set interaction control bool, else set control bool to false
-            if(bHitSuccessful) bCanInteract = ProcessInteractiveObjectHit(rayHit);
+            if (bHitSuccessful) bInteractObjectUpdated = ProcessInteractiveObjectHit(rayHit);
             else 
             {
-                bCanInteract = false;
+                bInteractObjectUpdated = false;
                 if(focusedInteractiveObject != null)  focusedInteractiveObject = null;
             }
         }
@@ -109,13 +132,14 @@ public class PlayerController : MonoBehaviour
     void Move(float LeftRight, float ForwardBack)
     {
         //create and calculate delta vector for movement
-        UnityEngine.Vector3 deltaPosition = new UnityEngine.Vector3 ();
+        UnityEngine.Vector3 deltaPosition = new();
 
         deltaPosition += 
             transform.right * LeftRight +    //x axis movement
             transform.forward * ForwardBack; //z axis movement
 
-        bPawnPositionUpdated = deltaPosition == new UnityEngine.Vector3() ? false : true;
+        //set control flag to true
+        bPawnPositionUpdated = deltaPosition != new UnityEngine.Vector3();
         
         //apply delta vector adjusted by rate and normalized by frame timing
         if(bPawnPositionUpdated) transform.position += moveRate * Time.deltaTime * deltaPosition;
@@ -157,7 +181,9 @@ public class PlayerController : MonoBehaviour
 
         return;
     }
+    #endregion Movement Methods
 
+    #region Utility Methods
     /// <summary>
     /// Processes new RaycastHit information for the 'Interaction' layer mask. 
     /// Sets the local var 'focusedInteractiveObject's script reference if both of the following are true: 
@@ -182,7 +208,36 @@ public class PlayerController : MonoBehaviour
             return false;
         }
     }
-    #endregion Movement Methods
+
+    public void SetCursorToMovementMode(bool bSetToMovementMode)
+    {
+        Cursor.lockState = bSetToMovementMode ? CursorLockMode.Locked : CursorLockMode.Confined;
+        Cursor.visible = !bSetToMovementMode;
+    }
+    #endregion Utility Methods
+
+    #region Game Management Methods
+    public void RestartScenario()
+    {
+        //unload subscenes
+        SceneManager.UnloadSceneAsync("Scene_Environment");
+        SceneManager.UnloadSceneAsync("Scene_InteractiveObjects");
+
+        //reload subscenes
+        SceneManager.LoadScene("Scene_Environment", LoadSceneMode.Additive);
+        SceneManager.LoadScene("Scene_InteractiveObjects", LoadSceneMode.Additive);
+
+        //reset key values/states
+        hud.victoryText.gameObject.SetActive(false);
+        hud.gameObject.SetActive(false);
+        SetCursorToMovementMode(true);
+        bMenuOpen = false;
+        bPlayerHasPickup = false;
+
+        //move player to checkpoint
+        gameObject.transform.position = checkpointLocation.position;
+    }
+    #endregion Game Management Methods
 
     #endregion METHODS
 }

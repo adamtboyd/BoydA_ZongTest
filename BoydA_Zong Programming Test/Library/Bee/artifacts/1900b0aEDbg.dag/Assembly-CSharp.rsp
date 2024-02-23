@@ -355,7 +355,11 @@
 -r:"Library/Bee/artifacts/1900b0aEDbg.dag/UnityEngine.UI.ref.dll"
 -analyzer:"E:/Unity/Editor Installs/2022.3.19f1/Editor/Data/Tools/Unity.SourceGenerators/Unity.Properties.SourceGenerator.dll"
 -analyzer:"E:/Unity/Editor Installs/2022.3.19f1/Editor/Data/Tools/Unity.SourceGenerators/Unity.SourceGenerators.dll"
+"Assets/Scripts/HUD_UI.cs"
 "Assets/Scripts/InteractiveObject.cs"
+"Assets/Scripts/IO_Deposit.cs"
+"Assets/Scripts/IO_Pickup.cs"
+"Assets/Scripts/LoadingManager.cs"
 "Assets/Scripts/PlayerController.cs"
 -langversion:9.0
 
